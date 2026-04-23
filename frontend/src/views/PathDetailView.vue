@@ -21,6 +21,29 @@
         @stop="handleTimerStop"
       />
     </section>
+    <section class="panel-card append-panel">
+      <div class="append-head">
+        <h3>追加章节</h3>
+        <p>支持路线创建后继续补充章节，每行一个。</p>
+      </div>
+      <el-input
+        v-model="appendForm.rawUnits"
+        type="textarea"
+        :rows="4"
+        resize="vertical"
+        placeholder="Chapter 11: Cache&#10;Chapter 12: Queue&#10;Chapter 13: Deploy"
+      />
+      <div class="append-actions">
+        <el-button
+          type="primary"
+          :loading="appendSubmitting"
+          :disabled="appendSubmitting || !appendForm.rawUnits.trim()"
+          @click="handleAppendUnits"
+        >
+          追加章节
+        </el-button>
+      </div>
+    </section>
     <ChapterList
       :units="path.units"
       @complete="handleComplete"
@@ -59,6 +82,7 @@ import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import {
+  appendPathUnits,
   completeUnit,
   fetchDashboard,
   fetchPathDetail,
@@ -103,9 +127,13 @@ const stats = reactive({
 });
 
 const logs = ref([]);
+const appendSubmitting = ref(false);
 const completeDialogVisible = ref(false);
 const selectedUnit = ref(null);
 const timerUnitId = ref(null);
+const appendForm = reactive({
+  rawUnits: ""
+});
 const completeForm = reactive({
   study_minutes: 30,
   comment: "",
@@ -282,6 +310,28 @@ const handlePlanDays = async (unit, plannedDays) => {
   }
 };
 
+const handleAppendUnits = async () => {
+  const units = appendForm.rawUnits
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!units.length) {
+    ElMessage.warning("请至少输入一个章节。");
+    return;
+  }
+  appendSubmitting.value = true;
+  try {
+    await appendPathUnits(path.id, { units });
+    appendForm.rawUnits = "";
+    ElMessage.success(`已追加 ${units.length} 个章节。`);
+    await load();
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || "追加章节失败。");
+  } finally {
+    appendSubmitting.value = false;
+  }
+};
+
 const handleTimerStart = async () => {
   if (!timerUnitId.value) {
     ElMessage.warning("请先选择一个章节再开始计时。");
@@ -350,6 +400,27 @@ onBeforeUnmount(stopTicker);
   display: grid;
   gap: 16px;
   grid-template-columns: 1.35fr 1fr;
+}
+
+.append-panel {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.append-head h3 {
+  margin: 0;
+}
+
+.append-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.append-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 @media (max-width: 980px) {

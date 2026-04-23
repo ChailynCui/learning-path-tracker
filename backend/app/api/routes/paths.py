@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.entities import LearningLog, LearningPath, LearningUnit, UserStats
 from app.schemas.path import (
+    AppendUnitsRequest,
     CompleteUnitRequest,
     CompleteUnitResponse,
     CreatePathRequest,
@@ -55,6 +56,28 @@ def _next_unit_title(path: LearningPath) -> str | None:
         if unit.status != "done":
             return unit.unit_title
     return None
+
+
+def _path_detail_response(path: LearningPath) -> PathDetailResponse:
+    return PathDetailResponse(
+        id=path.id,
+        title=path.title,
+        type=path.type,
+        source_url=path.source_url,
+        description=path.description,
+        daily_rule=path.daily_rule,
+        rule_type=path.rule_type,
+        daily_chapter_count=path.daily_chapter_count,
+        interval_days=path.interval_days,
+        range_start=path.range_start,
+        range_end=path.range_end,
+        status=path.status,
+        total_units=path.total_units,
+        completed_units=path.completed_units,
+        start_date=path.start_date,
+        end_date=path.end_date,
+        units=[UnitResponse.model_validate(unit) for unit in path.units],
+    )
 
 
 def _normalize_rule(
@@ -136,25 +159,7 @@ def create_path(payload: CreatePathRequest, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(path)
-    return PathDetailResponse(
-        id=path.id,
-        title=path.title,
-        type=path.type,
-        source_url=path.source_url,
-        description=path.description,
-        daily_rule=path.daily_rule,
-        rule_type=path.rule_type,
-        daily_chapter_count=path.daily_chapter_count,
-        interval_days=path.interval_days,
-        range_start=path.range_start,
-        range_end=path.range_end,
-        status=path.status,
-        total_units=path.total_units,
-        completed_units=path.completed_units,
-        start_date=path.start_date,
-        end_date=path.end_date,
-        units=[UnitResponse.model_validate(unit) for unit in path.units],
-    )
+    return _path_detail_response(path)
 
 
 @router.get("", response_model=list[PathSummaryResponse])
@@ -179,26 +184,50 @@ def get_path(path_id: int, db: Session = Depends(get_db)):
     path = db.query(LearningPath).filter(LearningPath.id == path_id).first()
     if not path:
         raise HTTPException(status_code=404, detail="Path not found.")
+    return _path_detail_response(path)
 
-    return PathDetailResponse(
-        id=path.id,
-        title=path.title,
-        type=path.type,
-        source_url=path.source_url,
-        description=path.description,
-        daily_rule=path.daily_rule,
-        rule_type=path.rule_type,
-        daily_chapter_count=path.daily_chapter_count,
-        interval_days=path.interval_days,
-        range_start=path.range_start,
-        range_end=path.range_end,
-        status=path.status,
-        total_units=path.total_units,
-        completed_units=path.completed_units,
-        start_date=path.start_date,
-        end_date=path.end_date,
-        units=[UnitResponse.model_validate(unit) for unit in path.units],
-    )
+
+@router.post("/{path_id}/units", response_model=PathDetailResponse)
+def append_path_units(path_id: int, payload: AppendUnitsRequest, db: Session = Depends(get_db)):
+    path = db.query(LearningPath).filter(LearningPath.id == path_id).first()
+    if not path:
+        raise HTTPException(status_code=404, detail="Path not found.")
+
+    chapters = [unit.strip() for unit in payload.units if unit.strip()]
+    if not chapters:
+        raise HTTPException(status_code=422, detail="At least one chapter is required.")
+
+    last_order = db.query(func.max(LearningUnit.unit_order)).filter(LearningUnit.path_id == path_id).scalar() or 0
+    default_plan_days = max(path.interval_days or 1, 1) if path.rule_type == "interval" else 1
+
+    for offset, chapter in enumerate(chapters, start=1):
+        db.add(
+            LearningUnit(
+                path_id=path.id,
+                unit_order=last_order + offset,
+                unit_title=chapter,
+                unit_type="chapter",
+                planned_days=default_plan_days,
+            )
+        )
+
+    old_total_units = path.total_units
+    path.total_units += len(chapters)
+    if path.status == "completed":
+        path.status = "ongoing"
+        path.end_date = None
+
+    # If range previously covered the full list, extend it to include newly appended chapters.
+    if path.rule_type == "range" and path.range_end is not None and path.range_end >= old_total_units:
+        path.range_start = path.range_start or 1
+        path.range_end = path.total_units
+        path.daily_chapter_count = max(path.range_end - path.range_start + 1, 1)
+        path.daily_rule = f"chapter {path.range_start}-{path.range_end}"
+
+    path.updated_at = datetime.now()
+    db.commit()
+    db.refresh(path)
+    return _path_detail_response(path)
 
 
 @router.get("/{path_id}/logs", response_model=list[PathLogResponse])

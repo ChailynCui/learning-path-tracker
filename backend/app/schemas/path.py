@@ -17,6 +17,10 @@ class CreatePathRequest(BaseModel):
     units: list[str] = Field(min_length=1)
 
 
+class AppendUnitsRequest(BaseModel):
+    units: list[str] = Field(min_length=1)
+
+
 class UnitResponse(BaseModel):
     id: int
     unit_order: int

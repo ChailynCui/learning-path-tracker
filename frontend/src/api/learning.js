@@ -4,6 +4,7 @@ export const fetchDashboard = () => client.get("/dashboard");
 export const updateWeeklyGoal = (target) => client.put("/dashboard/weekly-goal", { target });
 export const fetchPaths = () => client.get("/paths");
 export const fetchPathDetail = (pathId) => client.get(`/paths/${pathId}`);
+export const appendPathUnits = (pathId, payload) => client.post(`/paths/${pathId}/units`, payload);
 export const updatePathRule = (pathId, payload) => client.put(`/paths/${pathId}/rule`, payload);
 export const updateUnitPlanDays = (pathId, unitId, plannedDays) =>
   client.put(`/paths/${pathId}/units/${unitId}/plan-days`, { planned_days: plannedDays });
